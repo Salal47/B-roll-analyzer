@@ -1,0 +1,3 @@
+google-genai
+moviepy>=2.0,<3
+gradio>=4.0
