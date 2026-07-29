@@ -1,0 +1,73 @@
+name: Analyze B-Roll Clips
+
+on:
+  workflow_dispatch:
+    inputs:
+      clips_dir:
+        description: "Local folder (inside the runner) to download clips into / analyze"
+        required: false
+        default: "clips"
+      drive_folder_id:
+        description: "Google Drive folder ID containing the source clips"
+        required: true
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install rclone
+        run: curl https://rclone.org/install.sh | sudo bash
+
+      - name: Configure rclone (Google service account)
+        env:
+          GDRIVE_SA_KEY: ${{ secrets.GDRIVE_SA_KEY }}
+        run: |
+          mkdir -p ~/.config/rclone
+          echo "$GDRIVE_SA_KEY" > /tmp/sa.json
+          cat > ~/.config/rclone/rclone.conf <<EOF
+          [gdrive]
+          type = drive
+          scope = drive
+          service_account_file = /tmp/sa.json
+          EOF
+
+      - name: Download clips from Drive
+        run: |
+          mkdir -p "${{ github.event.inputs.clips_dir }}"
+          # Recursive copy — pulls the clips AND any existing des/ subfolder
+          # (previous broll_auto.csv / broll_metadata.json), so resume-by-CSV works.
+          rclone copy "gdrive:" "${{ github.event.inputs.clips_dir }}" \
+            --drive-root-folder-id "${{ github.event.inputs.drive_folder_id }}" -P
+
+      - name: Run analyzer
+        env:
+          GEMINI_API_KEYS: ${{ secrets.GEMINI_API_KEYS }}
+        run: python cli.py "${{ github.event.inputs.clips_dir }}"
+
+      # Results (broll_auto.csv, broll_metadata.json, duration cache) land in
+      # <clips_dir>/des/ next to the downloaded clips.
+
+      - name: Upload results as workflow artifact (quick download)
+        uses: actions/upload-artifact@v4
+        with:
+          name: broll-results
+          path: ${{ github.event.inputs.clips_dir }}/des/
+
+      - name: Push results back to Drive (so resume works next run)
+        run: |
+          rclone copy "${{ github.event.inputs.clips_dir }}/des" "gdrive:des" \
+            --drive-root-folder-id "${{ github.event.inputs.drive_folder_id }}" -P
