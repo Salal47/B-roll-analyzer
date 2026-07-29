@@ -1,6 +1,7 @@
 name: Analyze B-Roll Clips
 
 on:
+  # Manual: Actions tab -> "Run workflow" -> fill in the fields
   workflow_dispatch:
     inputs:
       clips_dir:
@@ -8,12 +9,29 @@ on:
         required: false
         default: "clips"
       drive_folder_id:
-        description: "Google Drive folder ID containing the source clips"
-        required: true
+        description: "Google Drive folder ID (leave blank to use the DRIVE_FOLDER_ID repo variable)"
+        required: false
+
+  # Automatic: runs every day at 03:00 UTC. Change the cron string to adjust timing.
+  # Scheduled runs always use the DRIVE_FOLDER_ID repo variable (see below) since
+  # there's no form to fill in when GitHub triggers this on its own.
+  schedule:
+    - cron: "*/30 * * * *"
+
+# Prevents overlapping runs: if a run is still going when the next scheduled
+# trigger fires, the new one waits in queue instead of starting in parallel.
+concurrency:
+  group: broll-analyzer
+  cancel-in-progress: false
 
 jobs:
   analyze:
     runs-on: ubuntu-latest
+    env:
+      # Manual run: use whatever was typed in the form (falls back to the repo
+      # variable if left blank). Scheduled run: always uses the repo variable.
+      CLIPS_DIR: ${{ github.event.inputs.clips_dir || 'clips' }}
+      DRIVE_FOLDER_ID: ${{ github.event.inputs.drive_folder_id || vars.DRIVE_FOLDER_ID }}
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -47,16 +65,16 @@ jobs:
 
       - name: Download clips from Drive
         run: |
-          mkdir -p "${{ github.event.inputs.clips_dir }}"
+          mkdir -p "$CLIPS_DIR"
           # Recursive copy — pulls the clips AND any existing des/ subfolder
           # (previous broll_auto.csv / broll_metadata.json), so resume-by-CSV works.
-          rclone copy "gdrive:" "${{ github.event.inputs.clips_dir }}" \
-            --drive-root-folder-id "${{ github.event.inputs.drive_folder_id }}" -P
+          rclone copy "gdrive:" "$CLIPS_DIR" \
+            --drive-root-folder-id "$DRIVE_FOLDER_ID" -P
 
       - name: Run analyzer
         env:
           GEMINI_API_KEYS: ${{ secrets.GEMINI_API_KEYS }}
-        run: python cli.py "${{ github.event.inputs.clips_dir }}"
+        run: python cli.py "$CLIPS_DIR"
 
       # Results (broll_auto.csv, broll_metadata.json, duration cache) land in
       # <clips_dir>/des/ next to the downloaded clips.
@@ -65,9 +83,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: broll-results
-          path: ${{ github.event.inputs.clips_dir }}/des/
+          path: ${{ env.CLIPS_DIR }}/des/
 
       - name: Push results back to Drive (so resume works next run)
         run: |
-          rclone copy "${{ github.event.inputs.clips_dir }}/des" "gdrive:des" \
-            --drive-root-folder-id "${{ github.event.inputs.drive_folder_id }}" -P
+          rclone copy "$CLIPS_DIR/des" "gdrive:des" \
+            --drive-root-folder-id "$DRIVE_FOLDER_ID" -P
