@@ -9,12 +9,12 @@ on:
         required: false
         default: "clips"
       drive_folder_id:
-        description: "Google Drive folder ID (leave blank to use the DRIVE_FOLDER_ID repo variable)"
+        description: "Google Drive folder ID (leave blank to use the DRIVE_FOLDER_ID repo secret)"
         required: false
 
   # Automatic: runs every 30 minutes. Scheduled runs have no form to fill in,
-  # so they always use the DRIVE_FOLDER_ID repo variable (Settings > Secrets
-  # and variables > Actions > Variables tab) — it MUST be set or this job
+  # so they always use the DRIVE_FOLDER_ID repo secret (Settings > Secrets
+  # and variables > Actions > Secrets tab) — it MUST be set or this job
   # will fail (see the "Validate inputs" step below).
   schedule:
     - cron: "*/30 * * * *"
@@ -29,15 +29,15 @@ jobs:
   analyze:
     runs-on: ubuntu-latest
     env:
-      # Manual run: use whatever was typed in the form (falls back to the repo
-      # variable if left blank). Scheduled run: always uses the repo variable.
+      # Manual run: use whatever was typed in the form (falls back to the
+      # repo secret if left blank). Scheduled run: always uses the secret.
       CLIPS_DIR: ${{ github.event.inputs.clips_dir || 'clips' }}
-      DRIVE_FOLDER_ID: ${{ github.event.inputs.drive_folder_id || vars.DRIVE_FOLDER_ID }}
+      DRIVE_FOLDER_ID: ${{ github.event.inputs.drive_folder_id || secrets.DRIVE_FOLDER_ID }}
     steps:
       - name: Validate inputs
         run: |
           if [ -z "$DRIVE_FOLDER_ID" ]; then
-            echo "::error::DRIVE_FOLDER_ID is empty. This run had no form value AND the repo variable DRIVE_FOLDER_ID is not set (or is empty). Go to Settings > Secrets and variables > Actions > Variables tab and add DRIVE_FOLDER_ID with your Drive folder's ID."
+            echo "::error::DRIVE_FOLDER_ID is empty. This run had no form value AND the repo secret DRIVE_FOLDER_ID is not set (or is empty). Go to Settings > Secrets and variables > Actions > Secrets tab and add DRIVE_FOLDER_ID with your Drive folder's ID."
             exit 1
           fi
           echo "Using DRIVE_FOLDER_ID=$DRIVE_FOLDER_ID, CLIPS_DIR=$CLIPS_DIR"
