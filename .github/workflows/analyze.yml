@@ -12,9 +12,10 @@ on:
         description: "Google Drive folder ID (leave blank to use the DRIVE_FOLDER_ID repo variable)"
         required: false
 
-  # Automatic: runs every day at 03:00 UTC. Change the cron string to adjust timing.
-  # Scheduled runs always use the DRIVE_FOLDER_ID repo variable (see below) since
-  # there's no form to fill in when GitHub triggers this on its own.
+  # Automatic: runs every 30 minutes. Scheduled runs have no form to fill in,
+  # so they always use the DRIVE_FOLDER_ID repo variable (Settings > Secrets
+  # and variables > Actions > Variables tab) — it MUST be set or this job
+  # will fail (see the "Validate inputs" step below).
   schedule:
     - cron: "*/30 * * * *"
 
@@ -33,6 +34,14 @@ jobs:
       CLIPS_DIR: ${{ github.event.inputs.clips_dir || 'clips' }}
       DRIVE_FOLDER_ID: ${{ github.event.inputs.drive_folder_id || vars.DRIVE_FOLDER_ID }}
     steps:
+      - name: Validate inputs
+        run: |
+          if [ -z "$DRIVE_FOLDER_ID" ]; then
+            echo "::error::DRIVE_FOLDER_ID is empty. This run had no form value AND the repo variable DRIVE_FOLDER_ID is not set (or is empty). Go to Settings > Secrets and variables > Actions > Variables tab and add DRIVE_FOLDER_ID with your Drive folder's ID."
+            exit 1
+          fi
+          echo "Using DRIVE_FOLDER_ID=$DRIVE_FOLDER_ID, CLIPS_DIR=$CLIPS_DIR"
+
       - name: Checkout repo
         uses: actions/checkout@v4
 
@@ -70,6 +79,16 @@ jobs:
           # (previous broll_auto.csv / broll_metadata.json), so resume-by-CSV works.
           rclone copy "gdrive:" "$CLIPS_DIR" \
             --drive-root-folder-id "$DRIVE_FOLDER_ID" -P
+
+      - name: Check clips were actually found
+        run: |
+          count=$(find "$CLIPS_DIR" -maxdepth 1 -type f \
+            \( -iname "*.mp4" -o -iname "*.mov" -o -iname "*.m4v" -o -iname "*.avi" -o -iname "*.mkv" -o -iname "*.webm" \) | wc -l)
+          echo "Found $count video file(s) in $CLIPS_DIR"
+          if [ "$count" -eq 0 ]; then
+            echo "::error::0 video files found after downloading from Drive folder $DRIVE_FOLDER_ID. Either the folder ID is wrong, or the folder is empty, or it wasn't shared with the service account (see PART D of DEPLOYMENT_GUIDE.md)."
+            exit 1
+          fi
 
       - name: Run analyzer
         env:
