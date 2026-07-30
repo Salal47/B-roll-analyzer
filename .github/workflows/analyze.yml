@@ -93,7 +93,8 @@ jobs:
       - name: Run analyzer
         env:
           GEMINI_API_KEYS: ${{ secrets.GEMINI_API_KEYS }}
-        run: python cli.py "$CLIPS_DIR"
+          PYTHONUNBUFFERED: "1"
+        run: python -u cli.py "$CLIPS_DIR"
 
       # Results (broll_auto.csv, broll_metadata.json, duration cache) land in
       # <clips_dir>/des/ next to the downloaded clips.
